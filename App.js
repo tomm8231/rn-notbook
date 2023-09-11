@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import {NavigationContainer} from '@react-navigation/native'
 import {createNativeStackNavigator} from '@react-navigation/native-stack'
-import { Alert, StyleSheet, View, TextInput, Button, FlatList, Text, TouchableOpacity } from 'react-native';
-
+import { Alert, StyleSheet, View, TextInput, Button, FlatList, Text, TouchableOpacity } from 'react-native'
+import { app, database } from './firebase.js'
+import { collection, addDoc, deleteDoc, updateDoc, doc, getDoc } from 'firebase/firestore';
+import { useCollection } from 'react-firebase-hooks/firestore'
 
 export default function App() {
   const Stack = createNativeStackNavigator()
@@ -18,21 +20,33 @@ export default function App() {
 
 const Page1 = ({navigation, route}) => {
   const messageBack = route.params?.messageBack
-  const index = route.params?.index
 
   const [addedTitle, setAddedTitle] = useState('')
   const [addedContent, setAddedContent] = useState('')
-  const [noteList, setNoteList] = useState([])
   //useState er react-native for et hook, som kan hægte sig på noget - som man gøre brug af
 
-  function addButtonPressed() {
-    const newNote = {title: addedTitle, content: addedContent}
-    setNoteList([...noteList, newNote])
-    setAddedTitle('')
-    setAddedContent('')
+  const [values, loading, error] = useCollection(collection(database, "notes"))
+  const data = values?.docs.map((doc) => ({
+    ...doc.data(),
+    id: doc.id
+   }))
+
+  async function addButtonPressed() {
+    try {
+      await addDoc(collection(database, "notes"), {
+        title: addedTitle,
+        content: addedContent
+      })
+      setAddedTitle('')
+      setAddedContent('')
+    
+    } catch(err) {
+      console.log("Error in DB: " + err);
+    }
+
   }
 
-  const handleNoteDelete = (index) => {
+  function deleteNote(id) {
     Alert.alert(
       'Slet note?',
       '',
@@ -44,13 +58,9 @@ const Page1 = ({navigation, route}) => {
         {
           text: 'SLET',
           style: 'destructive',
-          onPress: () => {
-            // Create a copy of the noteList and remove the note at the specified index
-            const updatedNoteList = [...noteList];
-            updatedNoteList.splice(index, 1);
-
-            // Update the noteList state
-            setNoteList(updatedNoteList);
+          onPress: async () => {
+            // Create a copy of the noteList and remove the note at the specified id
+            await deleteDoc(doc(database, "notes", id))
           },
         },
       ]
@@ -61,18 +71,17 @@ const Page1 = ({navigation, route}) => {
     <View style={styles.page1Container}>
       <View style={styles.listContainer}>
         <FlatList
-          data={noteList.reverse()}
-          renderItem={({ item, index }) => (
-            <TouchableOpacity onPress={() => navigation.navigate('Page2', { note: item})}>
+          data={data}
+          renderItem={({ item }) => (
+            <TouchableOpacity onPress={() => navigation.navigate('Page2', { note: item })}>
               <View style={styles.noteItem}>
                 <Text style={styles.noteText}>{item.title}</Text>
-                <TouchableOpacity style={styles.deleteButton} onPress={() => handleNoteDelete(index)}>
+                <TouchableOpacity style={styles.deleteButton} onPress={() => deleteNote(item.id)}>
                   <Text style={styles.deleteButtonText}>X</Text>
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
           )}
-          keyExtractor={(item, index) => index.toString()}
         />
       </View>
 
@@ -106,14 +115,59 @@ const Page1 = ({navigation, route}) => {
 }
 
 const Page2 = ({ route, navigation }) => {
-  const { note } = route.params
+  let note = route.params?.note
+  const [editedTitle, setEditedTitle] = useState('')
+  const [editedContent, setEditedContent] = useState('')
+  const [editObj, setEditObj] = useState(null)
+
+  function viewUpdateDialog(item) {
+    setEditObj(item)
+  }
+
+  async function saveUpdate() {
+    console.log(editedTitle);
+    console.log(editedContent);
+
+    await updateDoc(doc(database, "notes", editObj.id), {
+      title: (editedTitle) ? editedTitle : editObj.title,
+      content: (editedContent) ? editedContent: editObj.content
+    })
+
+    setEditedContent("")
+    setEditedTitle("")
+    setEditObj(null)
+    navigation.goBack()
+
+  }
+  
   return (
-    <View style={styles.page2Container}>
-      <View style={styles.contentContainer}>
-        <Text style={styles.noteTitle}>{note.title}</Text>
-        <Text style={styles.noteText}>{note.content}</Text>
-      </View>
-    </View>
+        <View style={styles.page2Container}>
+
+          { !editObj &&
+
+            <View style={styles.contentContainer}>
+              <Text style={styles.noteTitle}>{note.title}</Text>
+              <Text style={styles.noteText}>{note.content}</Text>
+              <Button title='Rediger' onPress={() => viewUpdateDialog(note)} />
+            </View>
+            }
+            { editObj &&
+            <View style={styles.contentContainer}>
+              <TextInput 
+                defaultValue={editObj.title} 
+                onChangeText={(txt) => setEditedTitle(txt)}
+                style={styles.noteTitle}
+              />
+              <TextInput 
+                defaultValue={editObj.content} 
+                onChangeText={(txt) => setEditedContent(txt)}
+                style={styles.noteText}
+                multiline={true}
+              />
+              <Button title='Gem' onPress={saveUpdate} />
+            </View>
+            }
+        </View>
   );
 }
 
