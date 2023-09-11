@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import {NavigationContainer} from '@react-navigation/native'
 import {createNativeStackNavigator} from '@react-navigation/native-stack'
-import { Alert, StyleSheet, View, TextInput, Button, FlatList, Text, TouchableOpacity } from 'react-native'
+import { Alert, StyleSheet, View, TextInput, Button, FlatList, Text, TouchableOpacity, ScrollView } from 'react-native'
 import { app, database } from './firebase.js'
 import { collection, addDoc, deleteDoc, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { useCollection } from 'react-firebase-hooks/firestore'
+
 
 export default function App() {
   const Stack = createNativeStackNavigator()
@@ -12,7 +13,7 @@ export default function App() {
   <NavigationContainer>
     <Stack.Navigator initialRouteName='Noter'>
       <Stack.Screen name='Noter' component={Page1} />
-      <Stack.Screen name='Page2' component={Page2} />
+      <Stack.Screen name='Note' component={Page2} />
     </Stack.Navigator>
   </NavigationContainer>
   )
@@ -73,7 +74,7 @@ const Page1 = ({navigation, route}) => {
         <FlatList
           data={data}
           renderItem={({ item }) => (
-            <TouchableOpacity onPress={() => navigation.navigate('Page2', { note: item })}>
+            <TouchableOpacity onPress={() => navigation.navigate('Note', { note: item })}>
               <View style={styles.noteItem}>
                 <Text style={styles.noteText}>{item.title}</Text>
                 <TouchableOpacity style={styles.deleteButton} onPress={() => deleteNote(item.id)}>
@@ -115,10 +116,11 @@ const Page1 = ({navigation, route}) => {
 }
 
 const Page2 = ({ route, navigation }) => {
-  let note = route.params?.note
+  const note = route.params?.note
   const [editedTitle, setEditedTitle] = useState('')
   const [editedContent, setEditedContent] = useState('')
   const [editObj, setEditObj] = useState(null)
+  navigation.setOptions({ title: '' })
 
   function viewUpdateDialog(item) {
     setEditObj(item)
@@ -141,34 +143,44 @@ const Page2 = ({ route, navigation }) => {
   }
   
   return (
-        <View style={styles.page2Container}>
+    <View style={styles.page2Container}>
+      <View style={styles.buttonContainer}>
+      {!editObj ? (
+        <TouchableOpacity style={styles.button} onPress={() => viewUpdateDialog(note)}>
+          <Text style={styles.buttonText}>Rediger</Text>
+        </TouchableOpacity>
+      ) : (
+          <TouchableOpacity style={styles.button} onPress={saveUpdate}>
+            <Text style={styles.buttonText}>Gem</Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
-          { !editObj &&
-
-            <View style={styles.contentContainer}>
-              <Text style={styles.noteTitle}>{note.title}</Text>
-              <Text style={styles.noteText}>{note.content}</Text>
-              <Button title='Rediger' onPress={() => viewUpdateDialog(note)} />
-            </View>
-            }
-            { editObj &&
-            <View style={styles.contentContainer}>
-              <TextInput 
-                defaultValue={editObj.title} 
-                onChangeText={(txt) => setEditedTitle(txt)}
-                style={styles.noteTitle}
-              />
-              <TextInput 
-                defaultValue={editObj.content} 
-                onChangeText={(txt) => setEditedContent(txt)}
-                style={styles.noteText}
-                multiline={true}
-              />
-              <Button title='Gem' onPress={saveUpdate} />
-            </View>
-            }
-        </View>
+      <ScrollView style={styles.contentContainer}>
+        {!editObj ? (
+          <View>
+            <Text style={styles.noteTitle}>{note.title}</Text>
+            <Text style={styles.noteText}>{note.content}</Text>
+          </View>
+        ) : (
+          <View>
+            <TextInput 
+              defaultValue={editObj.title} 
+              onChangeText={(txt) => setEditedTitle(txt)}
+              style={styles.noteTitle}
+            />
+            <TextInput 
+              defaultValue={editObj.content} 
+              onChangeText={(txt) => setEditedContent(txt)}
+              style={styles.noteText}
+              multiline={true}
+            />
+          </View>
+        )}
+      </ScrollView>
+    </View>
   );
+
 }
 
 
@@ -186,12 +198,22 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     justifyContent: 'flex-end',
   },
+  /*
   page2Container: {
     flex: 1,
     backgroundColor: '#F3EFEF', // Light beige background
     paddingTop: 20, // Add space to the top
     alignItems: 'center',
   },
+  */
+  page2Container: {
+    flex: 1,
+    backgroundColor: '#F3EFEF',
+    paddingTop: 20,
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+  },
+  /*
   contentContainer: {
     width: '80%',
     padding: 20,
@@ -199,6 +221,13 @@ const styles = StyleSheet.create({
     borderWidth: 1, // Thin border width
     borderRadius: 5, // Rounded corners
     backgroundColor: '#FFFFFF', // White background for content
+  },
+  */
+  contentContainer: {
+    flex: 1,
+    width: '100%',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
   },
   addButtonContainer: {
     flex: 1, // This makes the button fill out the entire row
@@ -226,18 +255,24 @@ const styles = StyleSheet.create({
     color: '#7E6158', // Rusty brown text color
     textAlignVertical: 'top', // Place text at the top
   },
-  // noteItem: {
-  //   padding: 10,
-  //   borderBottomWidth: 1,
-  //   borderColor: '#D0B89C',
-  //   backgroundColor: '#F5E1C1', // Light orange background for notes
-  // },
+  /*
   noteTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 10,
     color: '#333',
-
+  },
+  */
+  noteTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#333',
+  },
+  noteText: {
+    fontSize: 18,
+    lineHeight: 24,
+    color: '#333',
   },
   noteItem: {
     flexDirection: 'row',
@@ -259,4 +294,24 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 10,
   },
+
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'flex-start',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+  },
+  button: {
+    backgroundColor: '#007BFF', // Blue color, you can change this
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 5,
+    marginLeft: 10,
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+
 });
