@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import {NavigationContainer} from '@react-navigation/native'
 import {createNativeStackNavigator} from '@react-navigation/native-stack'
-import { Alert, StyleSheet, View, TextInput, Button, FlatList, Text, TouchableOpacity, ScrollView } from 'react-native'
-import { app, database } from './firebase.js'
+import { Alert, StyleSheet, View, TextInput, Button, FlatList, Text, TouchableOpacity, ScrollView, Image } from 'react-native'
+import { app, database, storage } from './firebase.js'
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { collection, addDoc, deleteDoc, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { useCollection } from 'react-firebase-hooks/firestore'
+import * as ImagePicker from 'expo-image-picker'
 
 
 export default function App() {
@@ -25,6 +27,7 @@ const Page1 = ({navigation, route}) => {
   const [addedTitle, setAddedTitle] = useState('')
   const [addedContent, setAddedContent] = useState('')
   //useState er react-native for et hook, som kan hægte sig på noget - som man gøre brug af
+  const [imagePath, setImagePath] = useState(null)
 
   const [values, loading, error] = useCollection(collection(database, "notes"))
   const data = values?.docs.map((doc) => ({
@@ -33,18 +36,25 @@ const Page1 = ({navigation, route}) => {
    }))
 
   async function addButtonPressed() {
-    try {
-      await addDoc(collection(database, "notes"), {
-        title: addedTitle,
-        content: addedContent
-      })
-      setAddedTitle('')
-      setAddedContent('')
+      try {
+
+        const url = await uploadImage()
+    
+        await addDoc(collection(database, "notes"), {
+          title: addedTitle,
+          content: addedContent,
+          imageURL: url
+        })
+        setAddedTitle('')
+        setAddedContent('')
+        setImagePath(null)
     
     } catch(err) {
       console.log("Error in DB: " + err);
     }
 
+
+  
   }
 
   function deleteNote(id) {
@@ -67,6 +77,56 @@ const Page1 = ({navigation, route}) => {
       ]
     );
   };
+
+  async function uploadImage() {
+
+    try {
+      const res = await fetch(imagePath)
+      const blob = await res.blob()
+
+      const uniqueImageID = Date.now().toString();
+      
+
+      const storageRef = ref(storage, uniqueImageID)
+      
+      const snapshot = await uploadBytes(storageRef, blob)
+      const downloadURL = await getDownloadURL(snapshot.ref)
+
+      setImagePath(downloadURL)
+      return downloadURL
+
+    
+  } catch (err) {
+      console.log("Fejl: " + err);
+  }
+  };
+
+  async function launchImagePicker() {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true
+    })
+    if(!result.canceled) {
+      setImagePath(result.assets[0].uri)
+    } 
+  }
+
+  async function launchCamera() {
+    const result = await ImagePicker.requestCameraPermissionsAsync() // spørger om lov
+    if(result.granted === false) { //samme værdig og samme type
+      alert("camera access not provided")
+    } else {
+      ImagePicker.launchCameraAsync({
+        quality:1 //ikke nødvendigt
+      })
+      .then((response) => {
+        if(!response.canceled) {
+          setImagePath(response.assets[0].uri)
+        }
+      })
+      .catch ((error) => alert("feil i kamera: " + error))
+    }
+  }
+
 
   return (
     <View style={styles.page1Container}>
@@ -107,6 +167,14 @@ const Page1 = ({navigation, route}) => {
 
         />
       </View>
+      <View style={styles.inputContainer}>
+      { (imagePath) ? (
+        <Image style={{width: 75, height: 75}} source={{uri:imagePath}} />
+        ) : <>
+        <Button title="Vælg billede" onPress={launchImagePicker}/>
+        <Button title="Kamera" onPress={launchCamera}/>
+        </> }
+      </View>
 
       <View style={styles.addBottunContainer}>
         <Button title='Add' onPress={addButtonPressed} />
@@ -120,8 +188,13 @@ const Page2 = ({ route, navigation }) => {
   const [editedTitle, setEditedTitle] = useState('')
   const [editedContent, setEditedContent] = useState('')
   const [editObj, setEditObj] = useState(null)
-  navigation.setOptions({ title: '' })
+  const [imagePath, setImagePath] = useState(null)
+  const [imageURL, setImageURL] = useState(route.params?.note.imageURL)
 
+
+  //For at få uploadImage til at virke på Android, måtte fetch() nedgraderes med: npm install whatwg-fetch@3.6.2
+  //Virkede fint i browser på PC fra starten
+  
   function viewUpdateDialog(item) {
     setEditObj(item)
   }
@@ -141,6 +214,35 @@ const Page2 = ({ route, navigation }) => {
     navigation.goBack()
 
   }
+
+  async function deleteImage() {
+    try {
+      // Check if the note has an image URL
+      if (imageURL) {
+        // Extract the filename from the imageURL
+        const filename = imageURL.split('/').pop();
+        const cleanFilename = filename.split('?')[0];
+        console.log(cleanFilename);
+        const storageRef = ref(storage, cleanFilename);
+
+        // Delete the file from Firebase Storage
+        await deleteObject(storageRef);
+
+        // Remove the imageURL from the note
+        await updateDoc(doc(database, "notes", note.id), {
+          imageURL: null,
+        });
+
+        setImageURL(null)
+
+        // Update the local state to clear the image
+        setImagePath(null);
+      }
+    } catch (error) {
+      console.error("Error deleting image: ", error);
+    }
+  }
+
   
   return (
     <View style={styles.page2Container}>
@@ -161,20 +263,27 @@ const Page2 = ({ route, navigation }) => {
           <View>
             <Text style={styles.noteTitle}>{note.title}</Text>
             <Text style={styles.noteText}>{note.content}</Text>
+            {imageURL && ( <>
+            <Image style={{ width: 200, height: 200 }} source={{ uri: imageURL }} />
+            <TouchableOpacity style={styles.deleteButton} onPress={deleteImage}>
+                <Text style={styles.deleteButtonText}>Delete Image</Text>
+              </TouchableOpacity>
+              </>
+              )}
           </View>
         ) : (
           <View>
-            <TextInput 
-              defaultValue={editObj.title} 
+            <TextInput
+              defaultValue={editObj.title}
               onChangeText={(txt) => setEditedTitle(txt)}
               style={styles.noteTitle}
             />
-            <TextInput 
-              defaultValue={editObj.content} 
+            <TextInput
+              defaultValue={editObj.content}
               onChangeText={(txt) => setEditedContent(txt)}
               style={styles.noteText}
               multiline={true}
-            />
+            />        
           </View>
         )}
       </ScrollView>
