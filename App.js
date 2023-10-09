@@ -2,18 +2,21 @@ import { useState } from 'react';
 import {NavigationContainer} from '@react-navigation/native'
 import {createNativeStackNavigator} from '@react-navigation/native-stack'
 import { Alert, StyleSheet, View, TextInput, Button, FlatList, Text, TouchableOpacity, ScrollView, Image } from 'react-native'
-import { app, database, storage } from './firebase.js'
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
-import { collection, addDoc, deleteDoc, updateDoc, doc, getDoc } from 'firebase/firestore';
-import { useCollection } from 'react-firebase-hooks/firestore'
-import * as ImagePicker from 'expo-image-picker'
+import { app, database, storage } from './firebase.js';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { collection, addDoc, deleteDoc, updateDoc, doc, getDoc, setDoc } from 'firebase/firestore';
+import { useCollection } from 'react-firebase-hooks/firestore';
+import * as ImagePicker from 'expo-image-picker';
+import axios from 'axios';
 
 
 export default function App() {
   const Stack = createNativeStackNavigator()
+
   return (
   <NavigationContainer>
-    <Stack.Navigator initialRouteName='Noter'>
+    <Stack.Navigator initialRouteName='Login'>
+      <Stack.Screen name= 'Login' component={Login} />
       <Stack.Screen name='Noter' component={Page1} />
       <Stack.Screen name='Note' component={Page2} />
     </Stack.Navigator>
@@ -21,33 +24,114 @@ export default function App() {
   )
 }
 
+const Login = ({navigation, route}) => {
+  const API_KEY = "AIzaSyCuinWjjoyxUEl1js_D17D91NRF8SpsjUg"
+  const url = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key="
+  const urlSignUp = "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key="
+  const [ enteredEmail, setEnteredEmail ] = useState("t@t.dk")
+  const [ enteredPassword, setEnteredPassword ] = useState("123456")
+
+ async function addCollectionForUser() {
+      const collectionId = enteredEmail;
+      const documentId = enteredEmail;
+      const value = { versionUsed: "V9" }; 
+      await setDoc(doc(database, collectionId, documentId), value); 
+ }
+
+
+
+  async function login() {
+    try {
+      const response = await axios.post(url + API_KEY, {
+        email: enteredEmail,
+        password: enteredPassword,
+        returnSecureToken: true
+      })
+      navigation.navigate('Noter', {enteredEmail})
+    } catch (error) {
+      alert("Not logged in: " + error.response.data.error.errors[0].message)
+    }
+
+  }
+
+  async function signUp() {
+    try {
+      const response = await axios.post(urlSignUp + API_KEY, {
+        email: enteredEmail,
+        password: enteredPassword,
+        returnSecureToken: true
+      })
+      await addCollectionForUser()
+      alert("Oprettet. Token: " + response.data.idToken)
+    } catch (error) {
+      alert("Not oprettet in: " + error.response.data.error.errors[0].message)
+    }
+
+  }
+
+  return (
+    <View style={styles.loginContainer}>
+    <Text style={styles.loginHeader}>Login or Sign Up</Text>
+    <TextInput
+      style={styles.loginInputField}
+      placeholder="Email"
+      onChangeText={(text) => setEnteredEmail(text)}
+      value={enteredEmail}
+    />
+    <TextInput
+      style={styles.loginInputField}
+      placeholder="Password"
+      secureTextEntry
+      onChangeText={(text) => setEnteredPassword(text)}
+      value={enteredPassword}
+    />
+    <View style={styles.loginButtonContainer}>
+      <Button title="Login" onPress={login} />
+      <Button title="Sign Up" onPress={signUp} />
+    </View>
+
+  </View>
+  )
+}
+
 const Page1 = ({navigation, route}) => {
+
   const messageBack = route.params?.messageBack
 
   const [addedTitle, setAddedTitle] = useState('')
   const [addedContent, setAddedContent] = useState('')
   //useState er react-native for et hook, som kan hægte sig på noget - som man gøre brug af
   const [imagePath, setImagePath] = useState(null)
+  const [isImportant, setIsImportant] = useState(false); // State for "important note" button
+  const importantButtonColor = isImportant ? 'green' : undefined;
 
-  const [values, loading, error] = useCollection(collection(database, "notes"))
+
+  const [values, loading, error] = useCollection(collection(database, route.params.enteredEmail))
   const data = values?.docs.map((doc) => ({
     ...doc.data(),
     id: doc.id
    }))
+
+  const toggleImportant = () => {
+    setIsImportant(!isImportant);
+  };
+
 
   async function addButtonPressed() {
       try {
 
         const url = await uploadImage()
     
-        await addDoc(collection(database, "notes"), {
-          title: addedTitle,
+        await addDoc(collection(database, route.params.enteredEmail), {
+          title: (isImportant) ? "[ ! ] " + addedTitle : addedTitle || (!addedTitle) ? (addedContent) ? addedContent : "Tom note" : "",
           content: addedContent,
-          imageURL: url
+          imageURL: (url) ? url : null
         })
         setAddedTitle('')
         setAddedContent('')
         setImagePath(null)
+        setIsImportant(false);
+
     
     } catch(err) {
       console.log("Error in DB: " + err);
@@ -71,7 +155,7 @@ const Page1 = ({navigation, route}) => {
           style: 'destructive',
           onPress: async () => {
             // Create a copy of the noteList and remove the note at the specified id
-            await deleteDoc(doc(database, "notes", id))
+            await deleteDoc(doc(database, route.params.enteredEmail, id))
           },
         },
       ]
@@ -129,7 +213,7 @@ const Page1 = ({navigation, route}) => {
 
 
   return (
-    <View style={styles.page1Container}>
+    <View style={[styles.page1Container]}>
       <View style={styles.listContainer}>
         <FlatList
           data={data}
@@ -149,7 +233,7 @@ const Page1 = ({navigation, route}) => {
       <View style={styles.inputContainer}>
         <TextInput
           style={styles.inputField}
-          placeholder='Note Title'
+          placeholder='Titel'
           value={addedTitle}
           onChangeText={(txt) => setAddedTitle(txt)}
         />
@@ -158,13 +242,12 @@ const Page1 = ({navigation, route}) => {
      <View style={styles.inputContainer}>
         <TextInput
           style={styles.inputField}
-          placeholder='Note Content'
+          placeholder='Indhold'
           value={addedContent}
           onChangeText={(txt) => setAddedContent(txt)}
           onBlur= {(e) => e.target.setNativeProps({numberOfLines: 1})}
           onFocus={(e) => e.target.setNativeProps({numberOfLines: 15})}
           multiline={true}
-
         />
       </View>
       <View style={styles.inputContainer}>
@@ -174,10 +257,11 @@ const Page1 = ({navigation, route}) => {
         <Button title="Vælg billede" onPress={launchImagePicker}/>
         <Button title="Kamera" onPress={launchCamera}/>
         </> }
+        <Button title="Vigtig!" onPress={toggleImportant} color={importantButtonColor} />
       </View>
 
       <View style={styles.addBottunContainer}>
-        <Button title='Add' onPress={addButtonPressed} />
+        <Button title='Gem note' onPress={addButtonPressed} />
       </View>
     </View>
   );
@@ -203,7 +287,7 @@ const Page2 = ({ route, navigation }) => {
     console.log(editedTitle);
     console.log(editedContent);
 
-    await updateDoc(doc(database, "notes", editObj.id), {
+    await updateDoc(doc(database, route.params.enteredEmail, editObj.id), {
       title: (editedTitle) ? editedTitle : editObj.title,
       content: (editedContent) ? editedContent: editObj.content
     })
@@ -229,7 +313,7 @@ const Page2 = ({ route, navigation }) => {
         await deleteObject(storageRef);
 
         // Remove the imageURL from the note
-        await updateDoc(doc(database, "notes", note.id), {
+        await updateDoc(doc(database, route.params.enteredEmail, note.id), {
           imageURL: null,
         });
 
@@ -263,13 +347,8 @@ const Page2 = ({ route, navigation }) => {
           <View>
             <Text style={styles.noteTitle}>{note.title}</Text>
             <Text style={styles.noteText}>{note.content}</Text>
-            {imageURL && ( <>
-            <Image style={{ width: 200, height: 200 }} source={{ uri: imageURL }} />
-            <TouchableOpacity style={styles.deleteButton} onPress={deleteImage}>
-                <Text style={styles.deleteButtonText}>Delete Image</Text>
-              </TouchableOpacity>
-              </>
-              )}
+            {imageURL && (
+            <Image style={{ width: 200, height: 200 }} source={{ uri: imageURL }} /> )}
           </View>
         ) : (
           <View>
@@ -283,7 +362,18 @@ const Page2 = ({ route, navigation }) => {
               onChangeText={(txt) => setEditedContent(txt)}
               style={styles.noteText}
               multiline={true}
-            />        
+            />     
+            {imageURL && ( <>
+            <Image style={{ width: 200, height: 200 }} source={{ uri: imageURL }} />
+            <TouchableOpacity style={styles.deleteButton} onPress={deleteImage}>
+                <Text style={styles.deleteButtonText}>Delete Image</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.deleteButton} onPress={deleteImage}>
+                <Text style={styles.addNewPhotoButton}>Indsæt nyt billede</Text>
+              </TouchableOpacity>
+
+              </>
+              )}   
           </View>
         )}
       </ScrollView>
@@ -337,6 +427,31 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingHorizontal: 20,
     paddingVertical: 10,
+  },
+
+  loginContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  loginHeader: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  loginInputField: {
+    width: '100%',
+    height: 40,
+    borderColor: 'gray',
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 10,
+    marginBottom: 10,
+  },
+  loginButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   addButtonContainer: {
     flex: 1, // This makes the button fill out the entire row
@@ -422,5 +537,9 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: 'bold',
   },
+  map: {
+    width: '100%',
+    height: '100%'
+  }
 
 });
